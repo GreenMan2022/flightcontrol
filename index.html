@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Flight Control — Диспетчер</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;height:100%;overflow:hidden;background:#08170f;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+  }
+  canvas{display:block;touch-action:none;cursor:crosshair}
+
+  #hud{
+    position:fixed;top:0;left:0;right:0;padding:14px 18px;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    gap:14px;pointer-events:none;color:#eafff2;
+  }
+  #score{font-size:34px;font-weight:800;line-height:1;text-shadow:0 3px 12px rgba(0,0,0,.6);flex:none}
+  #score span{
+    font-size:11px;font-weight:600;opacity:.6;display:block;
+    letter-spacing:.16em;text-transform:uppercase;margin-top:5px;
+  }
+
+  #stats{
+    display:flex;gap:22px;align-items:flex-start;
+    padding:6px 18px;border-radius:12px;
+    background:rgba(0,0,0,.28);border:1px solid rgba(126,227,165,.18);
+    flex:none;
+  }
+  #stats > div{display:flex;flex-direction:column;align-items:center;gap:2px}
+  #stats b{font-size:17px;font-weight:800;line-height:1;color:#eafff2}
+  #stats small{
+    font-size:9.5px;font-weight:600;opacity:.55;
+    text-transform:uppercase;letter-spacing:.1em;
+  }
+  #stats .rec b{color:#ffd43b}
+
+  #hint{
+    font-size:12.5px;opacity:.68;text-align:right;max-width:44vw;
+    line-height:1.45;text-shadow:0 2px 8px rgba(0,0,0,.6);flex:none;
+  }
+  @media (max-width:640px){
+    #hint{display:none}
+    #stats{gap:14px;padding:6px 12px}
+    #stats b{font-size:15px}
+    #score{font-size:28px}
+  }
+
+  /* пилюля со счётчиком игроков */
+  #visits{
+    position:fixed;left:14px;bottom:12px;
+    display:flex;align-items:center;gap:6px;
+    padding:6px 12px;border-radius:999px;
+    font-size:12px;font-weight:600;color:#eafff2;
+    background:rgba(0,0,0,.32);
+    border:1px solid rgba(126,227,165,.2);
+    box-shadow:0 4px 16px rgba(0,0,0,.35);
+    pointer-events:none;z-index:5;
+    text-shadow:0 1px 4px rgba(0,0,0,.5);
+  }
+  #visits b{color:#7ee3a5;font-weight:800}
+  #visits span{opacity:.7;font-weight:500}
+
+  #over{
+    position:fixed;inset:0;display:none;place-items:center;z-index:10;
+    background:rgba(3,12,8,.72);padding:16px;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  }
+  #over.on{display:grid}
+  .panel{
+    background:linear-gradient(160deg,#16352a,#0d241b);
+    border:1px solid rgba(126,227,165,.35);
+    border-radius:20px;padding:28px 34px;text-align:center;color:#eafff2;
+    box-shadow:0 30px 80px rgba(0,0,0,.65);
+    max-width:480px;width:100%;
+  }
+  .panel h1{margin:0 0 6px;font-size:22px;color:#ff7b7b}
+  .panel .sub{margin:0 0 4px;opacity:.65;font-size:13px}
+
+  .stats-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    gap:16px 10px;margin:20px 0 16px;
+  }
+  .stats-grid > div{display:flex;flex-direction:column;align-items:center;gap:3px}
+  .stats-grid span{font-size:22px;font-weight:800;color:#7ee3a5;line-height:1}
+  .stats-grid small{
+    font-size:10px;font-weight:600;opacity:.6;
+    text-transform:uppercase;letter-spacing:.08em;text-align:center;
+  }
+  .stats-grid .big span{font-size:32px;color:#ffd43b}
+  .stats-grid .visits-cell span{color:#8ad9ff}
+
+  #recordMsg{margin:0 0 20px;font-size:13px;font-weight:700;min-height:18px}
+
+  button{
+    font:inherit;font-weight:700;font-size:16px;padding:13px 34px;
+    border-radius:12px;border:0;background:#7ee3a5;color:#06251a;
+    cursor:pointer;transition:transform .1s,filter .15s;
+  }
+  button:hover{filter:brightness(1.1)}
+  button:active{transform:scale(.96)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="score"><b id="scoreNum">0</b><span>посажено</span></div>
+
+  <div id="stats">
+    <div><b id="timeVal">0:00</b><small>время</small></div>
+    <div><b id="airVal">0</b><small>в воздухе</small></div>
+    <div><b id="nearVal">0</b><small>почти</small></div>
+    <div class="rec"><b id="recordVal">0</b><small>рекорд</small></div>
+  </div>
+
+  <div id="hint">Тяни от самолёта, чтобы проложить курс.<br>
+    Цветные самолёты — на полосу,<br>жёлтые вертолёты — на площадку «H».</div>
+</div>
+
+<div id="visits">👥 <b id="visitsVal">…</b> <span>игроков</span></div>
+
+<div id="over">
+  <div class="panel">
+    <h1>Столкновение в воздухе</h1>
+    <p class="sub">Рейс окончен</p>
+
+    <div class="stats-grid">
+      <div class="big"><span id="fLanded">0</span><small>посажено</small></div>
+      <div><span id="fTime">0:00</span><small>время</small></div>
+      <div><span id="fMax">0</span><small>макс. в воздухе</small></div>
+      <div><span id="fPlanes">0</span><small>самолётов</small></div>
+      <div><span id="fHelis">0</span><small>вертолётов</small></div>
+      <div><span id="fNear">0</span><small>почти столкн.</small></div>
+      <div class="visits-cell"><span id="fVisits">…</span><small>игроков</small></div>
+    </div>
+
+    <p id="recordMsg"></p>
+    <button id="restart">Ещё раз</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const canvas   = document.getElementById('c');
+  const ctx      = canvas.getContext('2d');
+  const scoreNum = document.getElementById('scoreNum');
+  const overEl   = document.getElementById('over');
+
+  const timeVal   = document.getElementById('timeVal');
+  const airVal    = document.getElementById('airVal');
+  const nearVal   = document.getElementById('nearVal');
+  const recordVal = document.getElementById('recordVal');
+  const visitsVal = document.getElementById('visitsVal');
+
+  const fLanded = document.getElementById('fLanded');
+  const fTime   = document.getElementById('fTime');
+  const fMax    = document.getElementById('fMax');
+  const fPlanes = document.getElementById('fPlanes');
+  const fHelis  = document.getElementById('fHelis');
+  const fNear   = document.getElementById('fNear');
+  const fVisits = document.getElementById('fVisits');
+  const recordMsg = document.getElementById('recordMsg');
+
+  /* ============================================================
+     Счётчик игроков.
+     Бесплатный публичный counter-API. Инкремент — один раз за сессию.
+     Namespace привязан к домену, чтобы разные сайты не смешивались.
+     Если хотите ОДИН общий счётчик для всех — замените строку ниже
+     на константу, например: const VISITS_NS = 'flightcontrol-public';
+     ============================================================ */
+  const VISITS_NS = 'fc-' + (
+    (location.hostname || 'local')
+      .replace(/[^a-z0-9]/gi, '')
+      .toLowerCase()
+      .slice(0, 24) || 'local'
+  );
+
+  const LAST_VISITS_LS = 'fc_visits_last';   // последнее известное значение
+  const COUNTED_SS     = 'fc_visits_counted'; // флаг: уже инкрементнули в этой сессии
+
+  function fetchTimeout(url, ms = 4500) {
+    return Promise.race([
+      fetch(url, { cache: 'no-store' }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
+    ]);
+  }
+
+  async function apiHit() {
+    // abacus.jasoncameron.dev — инкремент
+    try {
+      const r = await fetchTimeout(
+        'https://abacus.jasoncameron.dev/hit/' + VISITS_NS + '/players'
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.value === 'number') return j.value;
+      }
+    } catch (_) {}
+    // counterapi.dev — инкремент
+    try {
+      const r = await fetchTimeout(
+        'https://api.counterapi.dev/v1/' + VISITS_NS + '/players/up'
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.count === 'number') return j.count;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function apiGet() {
+    try {
+      const r = await fetchTimeout(
+        'https://abacus.jasoncameron.dev/get/' + VISITS_NS + '/players'
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.value === 'number') return j.value;
+      }
+    } catch (_) {}
+    try {
+      const r = await fetchTimeout(
+        'https://api.counterapi.dev/v1/' + VISITS_NS + '/players'
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.count === 'number') return j.count;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function localFallback(increment) {
+    let n = 0;
+    try { n = parseInt(localStorage.getItem('fc_visits_local') || '0', 10) || 0; } catch (_) {}
+    if (increment) {
+      n += 1;
+      try { localStorage.setItem('fc_visits_local', String(n)); } catch (_) {}
+    }
+    return n;
+  }
+
+  function setVisitsDisplay(n) {
+    const s = Number(n).toLocaleString('ru-RU');
+    visitsVal.textContent = s;
+    fVisits.textContent = s;
+  }
+
+  async function loadVisits() {
+    let counted = false;
+    try { counted = sessionStorage.getItem(COUNTED_SS) === '1'; } catch (_) {}
+
+    let value = null;
+
+    if (!counted) {
+      value = await apiHit();
+      if (value !== null) {
+        try { sessionStorage.setItem(COUNTED_SS, '1'); } catch (_) {}
+      } else {
+        // API недоступен — локальный инкремент
+        value = localFallback(true);
+        try { sessionStorage.setItem(COUNTED_SS, '1'); } catch (_) {}
+      }
+    } else {
+      // В этой сессии уже считались — только читаем
+      value = await apiGet();
+      if (value === null) value = localFallback(false);
+    }
+
+    // последнее известное значение как кеш (на случай "…" при сбоях)
+    try { localStorage.setItem(LAST_VISITS_LS, String(value)); } catch (_) {}
+
+    setVisitsDisplay(value);
+  }
+
+  // кеш из прошлого визита — показываем сразу, пока грузится API
+  (function primeVisitsFromCache() {
+    let cached = null;
+    try { cached = localStorage.getItem(LAST_VISITS_LS); } catch (_) {}
+    if (cached !== null) setVisitsDisplay(cached);
+  })();
+
+  // не блокируем старт игры
+  setTimeout(loadVisits, 200);
+
+  /* ---------- утилиты ---------- */
+  let W = 0, H = 0;
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const fmtTime = (t) => {
+    const m = Math.floor(t / 60);
+    const s = Math.floor(t % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  };
+
+  function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width  = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ---------- посадочные зоны ---------- */
+  function runwayRect() {
+    const w = Math.min(240, W * 0.34);
+    return { x: W / 2 - w / 2, y: H - 78, w, h: 52 };
+  }
+  function heliPad() {
+    return { x: W - 72, y: H - 88, r: 34 };
+  }
+
+  /* ---------- состояние ---------- */
+  const PLANE_COLORS = ['#ff6b6b', '#4dabf7', '#b197fc', '#5ce1e6'];
+
+  const state = {
+    planes: [], popups: [],
+    score: 0, over: false, time: 0,
+    spawnTimer: 1.0, shake: 0,
+    landedPlane: 0, landedHeli: 0,
+    maxOnScreen: 0, nearMiss: 0,
+    record: 0, newRecord: false,
+    closePairs: new Set()
+  };
+  try { state.record = parseInt(localStorage.getItem('fc_record') || '0', 10) || 0; } catch (_) {}
+
+  let dragPlane = null;
+  let nextId = 1;
+  const scaleFactor = () => Math.max(0.75, Math.sqrt(W * H) / 900);
+
+  /* ---------- спавн ---------- */
+  function spawnPlane() {
+    const isHeli = Math.random() < 0.24;
+    const s   = scaleFactor();
+    const m   = 45;
+    const edge = [0, 1, 3][(Math.random() * 3) | 0];
+    let x, y, dir;
+
+    if (edge === 0)      { x = rand(60, W - 60); y = -m;               dir = Math.PI / 2; }
+    else if (edge === 1) { x = W + m;            y = rand(60, H - 150); dir = Math.PI; }
+    else                 { x = -m;               y = rand(60, H - 150); dir = 0; }
+
+    for (const p of state.planes) {
+      if (Math.hypot(p.x - x, p.y - y) < 140) return;
+    }
+
+    const base  = isHeli ? 46 : rand(60, 82);
+    const angle = dir + rand(-0.3, 0.3);
+    const L     = rand(280, 480) * s;
+
+    state.planes.push({
+      id: nextId++, x, y, angle,
+      type: isHeli ? 'heli' : 'plane',
+      color: isHeli ? '#ffd43b' : PLANE_COLORS[(Math.random() * PLANE_COLORS.length) | 0],
+      size: isHeli ? 13 : 15,
+      speed: base * s,
+      path: [{ x: x + Math.cos(angle) * L, y: y + Math.sin(angle) * L }]
+    });
+
+    if (state.planes.length > state.maxOnScreen) state.maxOnScreen = state.planes.length;
+  }
+
+  /* ---------- движение ---------- */
+  function movePlane(p, dt) {
+    let remaining = p.speed * dt;
+
+    if (!p.path.length) {
+      p.x += Math.cos(p.angle) * remaining;
+      p.y += Math.sin(p.angle) * remaining;
+      return;
+    }
+
+    while (remaining > 0 && p.path.length) {
+      const t  = p.path[0];
+      const dx = t.x - p.x, dy = t.y - p.y;
+      const d  = Math.hypot(dx, dy);
+      if (d < 0.01) { p.path.shift(); continue; }
+
+      p.angle = Math.atan2(dy, dx);
+      if (d <= remaining) {
+        p.x = t.x; p.y = t.y;
+        remaining -= d;
+        p.path.shift();
+      } else {
+        p.x += dx / d * remaining;
+        p.y += dy / d * remaining;
+        remaining = 0;
+      }
+    }
+  }
+
+  /* ---------- посадка / проигрыш ---------- */
+  function land(p) {
+    state.score++;
+    if (p.type === 'plane') state.landedPlane++; else state.landedHeli++;
+    scoreNum.textContent = state.score;
+    state.popups.push({ x: p.x, y: p.y, t: 0, color: p.color });
+
+    const i = state.planes.indexOf(p);
+    if (i >= 0) state.planes.splice(i, 1);
+    if (dragPlane === p) dragPlane = null;
+  }
+
+  function gameOver() {
+    if (state.over) return;
+    state.over = true;
+    dragPlane  = null;
+    state.shake = 1;
+
+    if (state.score > state.record) {
+      state.record = state.score;
+      state.newRecord = true;
+      try { localStorage.setItem('fc_record', String(state.record)); } catch (_) {}
+    }
+
+    fLanded.textContent = state.score;
+    fTime.textContent   = fmtTime(state.time);
+    fMax.textContent    = state.maxOnScreen;
+    fPlanes.textContent = state.landedPlane;
+    fHelis.textContent  = state.landedHeli;
+    fNear.textContent   = state.nearMiss;
+
+    if (state.newRecord) {
+      recordMsg.textContent = '🏆 Новый рекорд!';
+      recordMsg.style.color = '#ffd43b';
+    } else {
+      recordMsg.textContent = 'Рекорд: ' + state.record;
+      recordMsg.style.color = '#7ee3a5';
+    }
+
+    recordVal.textContent = state.record;
+    overEl.classList.add('on');
+  }
+
+  function reset() {
+    state.planes.length = 0;
+    state.popups.length = 0;
+    state.score = 0; state.over = false; state.time = 0;
+    state.spawnTimer = 1.4; state.shake = 0;
+    state.landedPlane = 0; state.landedHeli = 0;
+    state.maxOnScreen = 0; state.nearMiss = 0;
+    state.newRecord   = false;
+    state.closePairs.clear();
+    dragPlane = null; nextId = 1;
+
+    scoreNum.textContent = '0';
+    timeVal.textContent = '0:00';
+    airVal.textContent = '0';
+    nearVal.textContent = '0';
+    recordVal.textContent = state.record;
+    overEl.classList.remove('on');
+    spawnPlane();
+  }
+
+  /* ---------- логика ---------- */
+  function update(dt) {
+    state.time += dt;
+
+    state.spawnTimer -= dt;
+    if (state.spawnTimer <= 0) {
+      spawnPlane();
+      state.spawnTimer = Math.max(1.25, 3.6 - state.score * 0.06);
+    }
+
+    const rw = runwayRect();
+    const hp = heliPad();
+
+    for (let i = state.planes.length - 1; i >= 0; i--) {
+      const p = state.planes[i];
+      movePlane(p, dt);
+
+      let landed = false;
+      if (p.type === 'plane') {
+        if (p.x > rw.x && p.x < rw.x + rw.w &&
+            p.y > rw.y - 4 && p.y < rw.y + rw.h + 4) landed = true;
+      } else {
+        if (Math.hypot(p.x - hp.x, p.y - hp.y) < hp.r) landed = true;
+      }
+      if (landed) { land(p); continue; }
+
+      if (p.x < -300 || p.x > W + 300 || p.y < -300 || p.y > H + 300) {
+        state.planes.splice(i, 1);
+        if (dragPlane === p) dragPlane = null;
+      }
+    }
+
+    const arr = state.planes;
+    const closeNow = new Set();
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], b = arr[j];
+        const minD = (a.size + b.size) * 0.8;
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (d < minD) { gameOver(); return; }
+        if (d < minD * 1.9) {
+          const key = a.id < b.id ? (a.id + ':' + b.id) : (b.id + ':' + a.id);
+          closeNow.add(key);
+          if (!state.closePairs.has(key)) state.nearMiss++;
+        }
+      }
+    }
+    state.closePairs = closeNow;
+
+    for (let i = state.popups.length - 1; i >= 0; i--) {
+      const pop = state.popups[i];
+      pop.t += dt;
+      if (pop.t > 1.1) state.popups.splice(i, 1);
+    }
+    if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 2.5);
+  }
+
+  /* ---------- HUD (с троттлингом) ---------- */
+  let hudAcc = 0;
+  function updateHUD(dt) {
+    hudAcc += dt;
+    if (hudAcc < 0.12) return;
+    hudAcc = 0;
+
+    const t = fmtTime(state.time);
+    if (timeVal.textContent !== t) timeVal.textContent = t;
+    const air = String(state.planes.length);
+    if (airVal.textContent !== air) airVal.textContent = air;
+    const near = String(state.nearMiss);
+    if (nearVal.textContent !== near) nearVal.textContent = near;
+    const rec = String(state.record);
+    if (recordVal.textContent !== rec) recordVal.textContent = rec;
+  }
+
+  /* ---------- отрисовка ---------- */
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#123a28');
+    g.addColorStop(1, '#081c13');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+    ctx.lineWidth = 1;
+    const gs = 80;
+    ctx.beginPath();
+    for (let x = 0; x <= W; x += gs) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 0; y <= H; y += gs) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
+
+  function drawRunway() {
+    const r = runwayRect();
+    ctx.fillStyle = '#2c3f36'; rr(r.x, r.y, r.w, r.h, 8); ctx.fill();
+    ctx.strokeStyle = 'rgba(126,227,165,.7)'; ctx.lineWidth = 2;
+    rr(r.x, r.y, r.w, r.h, 8); ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(230,255,240,.5)'; ctx.lineWidth = 3;
+    ctx.setLineDash([14, 12]);
+    ctx.beginPath();
+    ctx.moveTo(r.x + 14, r.y + r.h / 2);
+    ctx.lineTo(r.x + r.w - 14, r.y + r.h / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawHelipad() {
+    const h = heliPad();
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#2c3f36'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,212,59,.85)'; ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(h.x, h.y, h.r * 0.64, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,212,59,.35)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.fillStyle = 'rgba(255,212,59,.92)';
+    ctx.font = '700 ' + Math.round(h.r * 0.85) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('H', h.x, h.y + 1);
+  }
+
+  function drawPaths() {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const p of state.planes) {
+      if (!p.path.length) continue;
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([10, 9]);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      for (const pt of p.path) ctx.lineTo(pt.x, pt.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const end = p.path[p.path.length - 1];
+      ctx.beginPath(); ctx.arc(end.x, end.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = p.color; ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawPlaneShape(p) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+
+    if (p.type === 'plane') {
+      const s = p.size;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.moveTo(s, 0);
+      ctx.lineTo(-s * 0.65, s * 0.75);
+      ctx.lineTo(-s * 0.35, 0);
+      ctx.lineTo(-s * 0.65, -s * 0.75);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.beginPath(); ctx.arc(s * 0.25, 0, s * 0.18, 0, Math.PI * 2); ctx.fill();
+    } else {
+      const s = p.size;
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.ellipse(0, 0, s * 0.95, s * 0.62, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(s * 0.6, -s * 0.16);
+      ctx.lineTo(s * 1.35, -s * 0.16);
+      ctx.lineTo(s * 1.35, s * 0.16);
+      ctx.lineTo(s * 0.6, s * 0.16);
+      ctx.closePath(); ctx.fill();
+
+      const a = state.time * 24;
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-Math.cos(a) * s * 1.5, -Math.sin(a) * s * 1.5);
+      ctx.lineTo( Math.cos(a) * s * 1.5,  Math.sin(a) * s * 1.5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawPopups() {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 16px system-ui, sans-serif';
+    for (const pop of state.popups) {
+      const k = pop.t / 1.1;
+      ctx.globalAlpha = 1 - k;
+      ctx.fillStyle = pop.color;
+      ctx.fillText('+1', pop.x, pop.y - 26 - k * 34);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function render() {
+    ctx.save();
+    if (state.shake > 0) {
+      const s = state.shake * 10;
+      ctx.translate(rand(-s, s), rand(-s, s));
+    }
+    drawBackground();
+    drawRunway();
+    drawHelipad();
+    drawPaths();
+    for (const p of state.planes) drawPlaneShape(p);
+    drawPopups();
+    ctx.restore();
+  }
+
+  /* ---------- управление ---------- */
+  canvas.addEventListener('pointerdown', (e) => {
+    if (state.over) return;
+    e.preventDefault();
+
+    const x = e.clientX, y = e.clientY;
+    let best = null, bestD = Infinity;
+    for (const p of state.planes) {
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < 46 && d < bestD) { bestD = d; best = p; }
+    }
+    if (best) {
+      dragPlane = best;
+      best.path.length = 0;
+      best.path.push({ x, y });
+      canvas.setPointerCapture(e.pointerId);
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragPlane || state.over) return;
+    e.preventDefault();
+    const x = e.clientX, y = e.clientY;
+    const path = dragPlane.path;
+    const last = path.length ? path[path.length - 1] : dragPlane;
+    if (Math.hypot(x - last.x, y - last.y) > 11) path.push({ x, y });
+  });
+
+  function endDrag(e) {
+    if (!dragPlane) return;
+    if (e && e.pointerId !== undefined) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+    dragPlane = null;
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  document.getElementById('restart').addEventListener('click', reset);
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'r' || e.key === 'R' || e.key === 'к' || e.key === 'К') {
+      if (state.over) reset();
+    }
+  });
+
+  /* ---------- цикл ---------- */
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min((now - last) / 1000, 0.05);
+    last = now;
+    if (!state.over) { update(dt); updateHUD(dt); }
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  recordVal.textContent = state.record;
+  spawnPlane();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
